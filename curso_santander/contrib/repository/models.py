@@ -1,0 +1,3 @@
+from curso_santander.atleta.models import AtletaModel
+from curso_santander.categorias.models import CategoriaModel
+from curso_santander.centro_treinamento.models import CentroTreinamentoModel

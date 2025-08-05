@@ -1,0 +1,6 @@
+# Arquivos de ambiente
+.env
+
+# Dependências do Python
+__pycache__/
+venv/
