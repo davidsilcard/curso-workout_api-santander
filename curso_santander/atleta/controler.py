@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, HTTPException, status, Query
+from datetime import datetime, timezone
 from pydantic import UUID4
 from sqlalchemy.orm import selectinload
 from curso_santander.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate, AtletaOutResumido
@@ -19,9 +20,13 @@ async def _get_atleta_by_id(id: UUID4, db_session: DatabaseDependency) -> Atleta
     """
     Busca um atleta pelo ID. Se não encontrar, lança HTTPException 404.
     """
+    query = (
+        select(AtletaModel)
+        .filter_by(id=id)
+        .options(selectinload(AtletaModel.categoria), selectinload(AtletaModel.centro_treinamento))
+    )
     atleta = (
-        (await db_session.execute(select(AtletaModel).filter_by(id=id)))
-        .scalars()
+        (await db_session.execute(query)).scalars()
         .first()
     )
 
@@ -51,20 +56,21 @@ async def post(db_session: DatabaseDependency, atleta_in: AtletaIn = Body(...)) 
     if not centro_treinamento:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"O centro de treinamento {atleta_in.centro_treinamento.nome} não foi encontrada",
+            detail=f"O centro de treinamento {atleta_in.centro_treinamento.nome} não foi encontrado",
         )
 
     try:
         atleta_model = AtletaModel(**atleta_in.model_dump(exclude={"categoria", "centro_treinamento"}))
-        atleta_model.categoria_id = categoria.id
-        atleta_model.centro_treinamento_id = centro_treinamento.id
+        atleta_model.categoria = categoria
+        atleta_model.centro_treinamento = centro_treinamento
+        atleta_model.created_at = datetime.now(timezone.utc)
 
         db_session.add(atleta_model)
         await db_session.commit()
-        await db_session.refresh(atleta_model)
     except IntegrityError:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=f"Já existe um atleta cadastrado com o cpf: {atleta_in.cpf}"
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Já existe um atleta cadastrado com o cpf: {atleta_in.cpf}",
         )
     except Exception:
         raise HTTPException(
@@ -127,7 +133,6 @@ async def patch(id: UUID4, db_session: DatabaseDependency, atleta_up: AtletaUpda
         setattr(atleta, key, value)
 
     await db_session.commit()
-    await db_session.refresh(atleta)
 
     return atleta
 

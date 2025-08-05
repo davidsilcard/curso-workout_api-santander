@@ -1,5 +1,5 @@
-from uuid import uuid4
 from fastapi import APIRouter, Body, status, HTTPException
+from datetime import datetime, timezone
 from pydantic import UUID4
 from curso_santander.categorias.schemas import CategoriaIn, CategoriaOut, CategoriaUpdate
 from curso_santander.categorias.models import CategoriaModel
@@ -12,6 +12,18 @@ from fastapi_pagination import LimitOffsetPage, paginate
 
 router = APIRouter()
 
+async def _get_categoria_by_id(id: UUID4, db_session: DatabaseDependency) -> CategoriaModel:
+    """
+    Busca uma categoria pelo ID. Se não encontrar, lança HTTPException 404.
+    """
+    categoria = (
+        (await db_session.execute(select(CategoriaModel).filter_by(id=id))).scalars().first()
+    )
+
+    if not categoria:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Categoria não encontrada no id: {id}")
+    return categoria
+
 
 @router.post(
     "/",
@@ -22,6 +34,7 @@ router = APIRouter()
 async def post(db_session: DatabaseDependency, categoria_in: CategoriaIn = Body(...)) -> CategoriaOut:
     try:
         categoria_model = CategoriaModel(**categoria_in.model_dump())
+        categoria_model.created_at = datetime.now(timezone.utc)
         db_session.add(categoria_model)
         await db_session.commit()
         await db_session.refresh(categoria_model)
@@ -57,12 +70,7 @@ async def get_all(db_session: DatabaseDependency) -> LimitOffsetPage[CategoriaOu
     response_model=CategoriaOut,
 )
 async def get_by_id(id: UUID4, db_session: DatabaseDependency) -> CategoriaOut:
-    categoria: CategoriaOut = (await db_session.execute(select(CategoriaModel).filter_by(id=id))).scalars().first()
-
-    if not categoria:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Categoria não encontrada no id: {id}")
-
-    return categoria
+    return await _get_categoria_by_id(id, db_session)
 
 
 @router.patch(
@@ -72,11 +80,7 @@ async def get_by_id(id: UUID4, db_session: DatabaseDependency) -> CategoriaOut:
     response_model=CategoriaOut,
 )
 async def patch(id: UUID4, db_session: DatabaseDependency, cat_up: CategoriaUpdate = Body(...)) -> CategoriaOut:
-    categoria: CategoriaOut = (await db_session.execute(select(CategoriaModel).filter_by(id=id))).scalars().first()
-
-    if not categoria:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Categoria não encontrada no id: {id}")
-
+    categoria = await _get_categoria_by_id(id, db_session)
     cat_update_data = cat_up.model_dump(exclude_unset=True)
     for key, value in cat_update_data.items():
         setattr(categoria, key, value)
@@ -89,12 +93,6 @@ async def patch(id: UUID4, db_session: DatabaseDependency, cat_up: CategoriaUpda
 
 @router.delete("/{id}", summary="Deletar uma categoria pelo id", status_code=status.HTTP_204_NO_CONTENT)
 async def delete(id: UUID4, db_session: DatabaseDependency) -> None:
-    categoria: CategoriaOut = (await db_session.execute(select(CategoriaModel).filter_by(id=id))).scalars().first()
-
-    if not categoria:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Categoria não encontrada no id: {id}"
-        )
-
+    categoria = await _get_categoria_by_id(id, db_session)
     await db_session.delete(categoria)
     await db_session.commit()

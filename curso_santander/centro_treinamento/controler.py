@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Body, status, HTTPException
 from pydantic import UUID4
+from datetime import datetime, timezone
 from curso_santander.centro_treinamento.schemas import CentroTreinamentoIn, CentroTreinamentoOut, CentroTreinamentoUpdate
 from curso_santander.centro_treinamento.models import CentroTreinamentoModel
 
@@ -12,6 +13,22 @@ from fastapi_pagination import LimitOffsetPage, paginate
 router = APIRouter()
 
 
+async def _get_centro_treinamento_by_id(id: UUID4, db_session: DatabaseDependency) -> CentroTreinamentoModel:
+    """
+    Busca um centro de treinamento pelo ID. Se não encontrar, lança HTTPException 404.
+    """
+    centro_treinamento = (
+        (await db_session.execute(select(CentroTreinamentoModel).filter_by(id=id)))
+        .scalars()
+        .first()
+    )
+
+    if not centro_treinamento:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Centro de treinamento não encontrado no id: {id}"
+        )
+    return centro_treinamento
+
 @router.post(
     "/",
     summary="Criar um novo centro de treinamento",
@@ -23,6 +40,7 @@ async def post(
 ) -> CentroTreinamentoOut:
     try:
         centro_treinamento_model = CentroTreinamentoModel(**centro_treinamento_in.model_dump())
+        centro_treinamento_model.created_at = datetime.now(timezone.utc)
         db_session.add(centro_treinamento_model)
         await db_session.commit()
         await db_session.refresh(centro_treinamento_model)
@@ -59,16 +77,7 @@ async def get_all(db_session: DatabaseDependency) -> LimitOffsetPage[CentroTrein
     response_model=CentroTreinamentoOut,
 )
 async def get_by_id(id: UUID4, db_session: DatabaseDependency) -> CentroTreinamentoOut:
-    centro_treinamento: CentroTreinamentoOut = (
-        (await db_session.execute(select(CentroTreinamentoModel).filter_by(id=id))).scalars().first()
-    )
-
-    if not centro_treinamento:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Centro de treinamento não encontrado no id: {id}"
-        )
-
-    return centro_treinamento
+    return await _get_centro_treinamento_by_id(id, db_session)
 
 
 @router.patch(
@@ -78,14 +87,7 @@ async def get_by_id(id: UUID4, db_session: DatabaseDependency) -> CentroTreiname
     response_model=CentroTreinamentoOut,
 )
 async def patch(id: UUID4, db_session: DatabaseDependency, ct_up: CentroTreinamentoUpdate = Body(...)) -> CentroTreinamentoOut:
-    centro_treinamento: CentroTreinamentoOut = (
-        (await db_session.execute(select(CentroTreinamentoModel).filter_by(id=id))).scalars().first()
-    )
-
-    if not centro_treinamento:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Centro de treinamento não encontrado no id: {id}"
-        )
+    centro_treinamento = await _get_centro_treinamento_by_id(id, db_session)
 
     ct_update = ct_up.model_dump(exclude_unset=True)
     for key, value in ct_update.items():
@@ -99,14 +101,6 @@ async def patch(id: UUID4, db_session: DatabaseDependency, ct_up: CentroTreiname
 
 @router.delete("/{id}", summary="Deletar um centro de treinamento pelo id", status_code=status.HTTP_204_NO_CONTENT)
 async def delete(id: UUID4, db_session: DatabaseDependency) -> None:
-    centro_treinamento: CentroTreinamentoOut = (
-        (await db_session.execute(select(CentroTreinamentoModel).filter_by(id=id))).scalars().first()
-    )
-
-    if not centro_treinamento:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"Centro de treinamento não encontrado no id: {id}"
-        )
-
+    centro_treinamento = await _get_centro_treinamento_by_id(id, db_session)
     await db_session.delete(centro_treinamento)
     await db_session.commit()
